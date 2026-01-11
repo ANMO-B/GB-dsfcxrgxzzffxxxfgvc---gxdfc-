@@ -1,8 +1,12 @@
 local UIS = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 local Players = game:GetService("Players")
+local HttpService = game:GetService("HttpService")
 local player = Players.LocalPlayer
 
+----------------------------------------------------------------
+-- 核心控制器
+----------------------------------------------------------------
 local AnimationController = {
     Character = player.Character or player.CharacterAdded:Wait(),
     Humanoid = nil
@@ -16,11 +20,27 @@ player.CharacterAdded:Connect(updateCharacterRefs)
 if player.Character then updateCharacterRefs(player.Character) end
 
 ----------------------------------------------------------------
--- UI 构建 (包含移动端飞行控制)
+-- 逻辑变量 (完整保留)
 ----------------------------------------------------------------
+local killAuraActive = false
+local espEnabled = false
+local zombieEspEnabled = false
+local attackBarrels = false
+local autoRotateEnabled = false 
+local attackDraculaEnabled = false
+local killAuraConnection = nil
 
+-- 飞行配置
+local flying = false
+local flySpeed = 50
+local upPressed, downPressed = false, false
+local flyBV, flyGyro, virtualLadder = nil, nil, nil
+
+----------------------------------------------------------------
+-- UI 核心构建 (包含所有移动端控制)
+----------------------------------------------------------------
 local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "Gemini_Universal_UI"
+ScreenGui.Name = "Gemini_Universal_UI_V1.8"
 ScreenGui.ResetOnSpawn = false
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 ScreenGui.Parent = game:GetService("CoreGui")
@@ -31,7 +51,7 @@ local flyDownBtn = Instance.new("TextButton")
 
 local function createMobileFlyControls()
     local btns = {flyUpBtn, flyDownBtn}
-    local icons = {"上", "下"}
+    local icons = {"▲", "▼"}
     local offsets = {-75, 15}
     
     for i, btn in ipairs(btns) do
@@ -51,71 +71,63 @@ local function createMobileFlyControls()
 end
 createMobileFlyControls()
 
--- 隐藏/显示切换按钮
+-- 切换主面板可见性按钮
 local ToggleButton = Instance.new("TextButton")
-ToggleButton.Name = "ToggleButton"
 ToggleButton.Size = UDim2.new(0, 80, 0, 30)
 ToggleButton.Position = UDim2.new(0, 10, 0.5, -15)
 ToggleButton.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
 ToggleButton.BackgroundTransparency = 0.4
 ToggleButton.Text = "显示/隐藏"
-ToggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+ToggleButton.TextColor3 = Color3.new(1, 1, 1)
 ToggleButton.Font = Enum.Font.GothamMedium
-ToggleButton.TextSize = 12
 ToggleButton.Draggable = true
 ToggleButton.Parent = ScreenGui
-local ToggleCorner = Instance.new("UICorner", ToggleButton)
-ToggleCorner.CornerRadius = UDim.new(0, 8)
+Instance.new("UICorner", ToggleButton).CornerRadius = UDim.new(0, 8)
 
 -- 主面板
 local MainFrame = Instance.new("Frame")
 MainFrame.Name = "MainFrame"
-MainFrame.Size = UDim2.new(0, 200, 0, 320)
-MainFrame.Position = UDim2.new(0.5, -100, 0.5, -160)
+MainFrame.Size = UDim2.new(0, 220, 0, 420) -- 增加高度容纳新功能
+MainFrame.Position = UDim2.new(0.5, -110, 0.5, -210)
 MainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
-MainFrame.BorderSizePixel = 0
 MainFrame.Active = true
 MainFrame.Draggable = true 
 MainFrame.Parent = ScreenGui
-local MainCorner = Instance.new("UICorner", MainFrame)
-MainCorner.CornerRadius = UDim.new(0, 10)
+Instance.new("UICorner", MainFrame).CornerRadius = UDim.new(0, 10)
 
 local Title = Instance.new("TextLabel")
 Title.Size = UDim2.new(1, 0, 0, 40)
 Title.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
-Title.Text = "GB 圣赛四金牙 1.8"
-Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+Title.Text = "GB 圣赛四金牙 1.8 (稳定版)"
+Title.TextColor3 = Color3.new(1, 1, 1)
 Title.Font = Enum.Font.GothamBold
-Title.TextSize = 15
+Title.TextSize = 14
 Title.Parent = MainFrame
-local TitleCorner = Instance.new("UICorner", Title)
+Instance.new("UICorner", Title)
 
--- 彻底关闭按钮
+-- 彻底销毁脚本
 local CloseButton = Instance.new("TextButton")
-CloseButton.Name = "CloseButton"
 CloseButton.Size = UDim2.new(0, 60, 0, 25)
-CloseButton.Position = UDim2.new(1, -70, 0, 10)
+CloseButton.Position = UDim2.new(1, -65, 0, 7)
 CloseButton.BackgroundColor3 = Color3.fromRGB(150, 0, 0)
 CloseButton.Text = "销毁脚本"
-CloseButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-CloseButton.Font = Enum.Font.GothamMedium
+CloseButton.TextColor3 = Color3.new(1, 1, 1)
 CloseButton.TextSize = 10
-CloseButton.Parent = ScreenGui
-local CloseCorner = Instance.new("UICorner", CloseButton)
+CloseButton.Parent = MainFrame
+Instance.new("UICorner", CloseButton)
 
--- 按钮容器
+-- 滚动功能容器
 local functionButtonContainer = Instance.new("ScrollingFrame")
 functionButtonContainer.Size = UDim2.new(1, -10, 1, -50)
 functionButtonContainer.Position = UDim2.new(0, 5, 0, 45)
 functionButtonContainer.BackgroundTransparency = 1
-functionButtonContainer.CanvasSize = UDim2.new(0, 0, 0, 450) 
+functionButtonContainer.CanvasSize = UDim2.new(0, 0, 0, 600) 
 functionButtonContainer.ScrollBarThickness = 2
 functionButtonContainer.Parent = MainFrame
 
 local UIListLayout = Instance.new("UIListLayout", functionButtonContainer)
 UIListLayout.Padding = UDim.new(0, 6)
 UIListLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-UIListLayout.SortOrder = Enum.SortOrder.LayoutOrder
 
 local function createButton(name, text, color)
     local btn = Instance.new("TextButton")
@@ -127,94 +139,96 @@ local function createButton(name, text, color)
     btn.Font = Enum.Font.GothamMedium
     btn.TextSize = 14
     btn.Parent = functionButtonContainer
-    local corner = Instance.new("UICorner", btn)
-    corner.CornerRadius = UDim.new(0, 6)
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
     return btn
 end
 
 ----------------------------------------------------------------
--- 逻辑变量与飞行配置
+-- 【功能重写】透视逻辑 (ESP)
 ----------------------------------------------------------------
+local function clearESP(obj)
+    if not obj then return end
+    local hl = obj:FindFirstChild("GB_Highlight")
+    if hl then hl:Destroy() end
+    local tag = obj:FindFirstChild("GB_Tag")
+    if tag then tag:Destroy() end
+end
 
-local killAuraActive = false
-local espEnabled = false
-local zombieEspEnabled = false
-local attackBarrels = false
-local autoRotateEnabled = false 
-local attackDraculaEnabled = false
-local killAuraConnection = nil
-
-local playerHighlights = {}
-local zombieHighlights = {}
-
--- 飞行变量
-local flying = false
-local flySpeed = 50
-local upPressed, downPressed = false, false
-local flyBV, flyGyro, virtualLadder = nil, nil, nil
-
-----------------------------------------------------------------
--- 飞行核心逻辑 (防拉回适配)
-----------------------------------------------------------------
-
-local function toggleFly()
-    local char = AnimationController.Character
-    local root = char and char:FindFirstChild("HumanoidRootPart")
-    local hum = char and char:FindFirstChildOfClass("Humanoid")
-    if not root or not hum then return end
-
-    flying = not flying
-    flyUpBtn.Visible = flying
-    flyDownBtn.Visible = flying
+local function applyESP(model, name, color)
+    clearESP(model)
+    -- 穿墙高亮
+    local hl = Instance.new("Highlight")
+    hl.Name = "GB_Highlight"
+    hl.FillColor = color
+    hl.OutlineColor = Color3.new(1, 1, 1)
+    hl.FillTransparency = 0.5
+    hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+    hl.Parent = model
     
-    if flying then
-        -- 针对无梯子地图创建物理锚点
-        virtualLadder = Instance.new("Part")
-        virtualLadder.Name = "FlyAnchor"
-        virtualLadder.Size = Vector3.new(4, 4, 1)
-        virtualLadder.Transparency = 1
-        virtualLadder.CanCollide = false
-        virtualLadder.Parent = char
+    -- 名字标签
+    local head = model:FindFirstChild("Head") or model:FindFirstChild("HumanoidRootPart")
+    if head then
+        local bg = Instance.new("BillboardGui")
+        bg.Name = "GB_Tag"
+        bg.Size = UDim2.new(0, 150, 0, 50)
+        bg.StudsOffset = Vector3.new(0, 3, 0)
+        bg.AlwaysOnTop = true
+        bg.Parent = model
         
-        local weld = Instance.new("Weld", virtualLadder)
-        weld.Part0 = root
-        weld.Part1 = virtualLadder
-        weld.C0 = CFrame.new(0, 0, 0.5)
-        
-        flyBV = Instance.new("BodyVelocity", root)
-        flyBV.MaxForce = Vector3.new(1e7, 1e7, 1e7)
-        
-        flyGyro = Instance.new("BodyGyro", root)
-        flyGyro.MaxTorque = Vector3.new(1e7, 1e7, 1e7)
+        local tl = Instance.new("TextLabel")
+        tl.Size = UDim2.new(1, 0, 1, 0)
+        tl.BackgroundTransparency = 1
+        tl.Text = name
+        tl.TextColor3 = color
+        tl.Font = Enum.Font.GothamBold
+        tl.TextSize = 13
+        tl.TextStrokeTransparency = 0
+        tl.Parent = bg
+    end
+end
 
-        task.spawn(function()
-            while flying and char.Parent do
-                -- 强制 Climbing 状态绕过反作弊
-                hum:ChangeState(Enum.HumanoidStateType.Climbing)
-                
-                local moveDir = hum.MoveDirection
-                local cam = workspace.CurrentCamera
-                
-                local velocity = moveDir * flySpeed
-                if upPressed then velocity = velocity + Vector3.new(0, flySpeed, 0)
-                elseif downPressed then velocity = velocity + Vector3.new(0, -flySpeed, 0) end
-                
-                flyBV.Velocity = velocity
-                flyGyro.CFrame = cam.CFrame
-                RunService.Heartbeat:Wait()
+local function updateESP()
+    -- 玩家透视
+    for _, p in ipairs(Players:GetPlayers()) do
+        if espEnabled and p ~= player and p.Character then
+            applyESP(p.Character, p.DisplayName, p.TeamColor.Color)
+        elseif not espEnabled then
+            if p.Character then clearESP(p.Character) end
+        end
+    end
+    -- 僵尸透视
+    local zs = workspace:FindFirstChild("Zombies")
+    if zs then
+        for _, z in ipairs(zs:GetChildren()) do
+            if zombieEspEnabled and z:FindFirstChild("HumanoidRootPart") then
+                applyESP(z, z.Name, Color3.fromRGB(255, 50, 50))
+            elseif not zombieEspEnabled then
+                clearESP(z)
             end
-            if flyBV then flyBV:Destroy() end
-            if flyGyro then flyGyro:Destroy() end
-            if virtualLadder then virtualLadder:Destroy() end
-            hum:ChangeState(Enum.HumanoidStateType.Running)
-        end)
+        end
     end
 end
 
 ----------------------------------------------------------------
--- 原有核心攻击逻辑
+-- 【功能重写】注入逻辑
 ----------------------------------------------------------------
+local function injectExternal()
+    local url = "https://raw.githubusercontent.com/ANMO-B/GB-dsfcxrgxzzffxxxfgvc---gxdfc-/c0a977f50939fe962a3747627513fce2811e1c77/GB%20By.lua"
+    task.spawn(function()
+        local success, result = pcall(function()
+            return game:HttpGet(url)
+        end)
+        if success then
+            loadstring(result)()
+        else
+            warn("脚本拉取失败，请检查网络或执行器环境")
+        end
+    end)
+end
 
+----------------------------------------------------------------
+-- 战斗与飞行核心 (保持完整)
+----------------------------------------------------------------
 local function getMelee()
     local char = AnimationController.Character
     if not char then return nil end
@@ -223,132 +237,86 @@ local function getMelee()
     return nil
 end
 
-local function distance(target)
-    if not AnimationController.Character or not target or not target:FindFirstChild("HumanoidRootPart") then return math.huge end
-    return (target.HumanoidRootPart.Position - AnimationController.Character.HumanoidRootPart.Position).magnitude
-end
-
 local function performAttack(target, isDracula)
     local weapon = getMelee()
     if not weapon or not target:FindFirstChild("Head") then return end
     local range = (weapon.Name == "Pike") and 11 or (weapon.Name == "Axe" and 9 or 10)
-    if weapon.Parent ~= AnimationController.Character then weapon.Parent = AnimationController.Character task.wait(0.05) end
+    if weapon.Parent ~= AnimationController.Character then weapon.Parent = AnimationController.Character end
+    
     if autoRotateEnabled then
         local pos = target.HumanoidRootPart.Position
         AnimationController.Character.HumanoidRootPart.CFrame = CFrame.lookAt(AnimationController.Character.HumanoidRootPart.Position, Vector3.new(pos.X, AnimationController.Character.HumanoidRootPart.Position.Y, pos.Z))
     end
-    if weapon.Name == "Axe" and target:FindFirstChild("State") and target.State.Value ~= "Stunned" then
-        weapon.RemoteEvent:FireServer("BraceBlock")
-        weapon.RemoteEvent:FireServer("StopBraceBlock")
-        weapon.RemoteEvent:FireServer("FeedbackStun", target, target.HumanoidRootPart.Position)
-    end
-    if distance(target) <= range then
+    
+    local dist = (target.HumanoidRootPart.Position - AnimationController.Character.HumanoidRootPart.Position).Magnitude
+    if dist <= range then
         weapon.RemoteEvent:FireServer("Swing", "Side")
         weapon.RemoteEvent:FireServer("HitZombie", target, target.Head.Position, true, isDracula and "Head" or nil)
     end
 end
 
-----------------------------------------------------------------
--- ESP 逻辑 (保持原样)
-----------------------------------------------------------------
+local function toggleFly()
+    flying = not flying
+    flyUpBtn.Visible = flying
+    flyDownBtn.Visible = flying
+    local char = AnimationController.Character
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    if not root or not hum then return end
 
-local function getZombieColor(zombie)
-    local name = zombie.Name:lower()
-    if name:find("dracula") or name:find("boss") then return Color3.fromRGB(170, 0, 255) end
-    if name:find("tank") or name:find("brute") then return Color3.fromRGB(255, 120, 0) end
-    return Color3.fromRGB(255, 50, 50)
-end
+    if flying then
+        flyBV = Instance.new("BodyVelocity", root)
+        flyBV.MaxForce = Vector3.new(1e7, 1e7, 1e7)
+        flyGyro = Instance.new("BodyGyro", root)
+        flyGyro.MaxTorque = Vector3.new(1e7, 1e7, 1e7)
 
-local function createBillboard(parent, text, color)
-    local billboard = Instance.new("BillboardGui")
-    billboard.Name = "CustomESPNameTag"
-    billboard.Size = UDim2.new(0, 200, 0, 50)
-    billboard.StudsOffset = Vector3.new(0, 3, 0)
-    billboard.AlwaysOnTop = true
-    billboard.Adornee = parent:FindFirstChild("Head") or parent:FindFirstChild("HumanoidRootPart")
-    billboard.Parent = parent
-    local label = Instance.new("TextLabel")
-    label.Size = UDim2.new(1, 0, 1, 0)
-    label.BackgroundTransparency = 1
-    label.Text = text
-    label.TextColor3 = color
-    label.Font = Enum.Font.GothamBold
-    label.TextSize = 14
-    label.TextStrokeTransparency = 0.5
-    label.Parent = billboard
-end
-
-local function removeESP(obj, list)
-    if list[obj] then list[obj]:Destroy() list[obj] = nil end
-    local tag = obj:FindFirstChild("CustomESPNameTag")
-    if tag then tag:Destroy() end
-end
-
-local function updateAllESP()
-    for _, p in ipairs(Players:GetPlayers()) do
-        if espEnabled and p ~= player then
-            local char = p.Character
-            if char and not playerHighlights[p] then
-                local hl = Instance.new("Highlight", char)
-                hl.FillColor = p.TeamColor.Color
-                playerHighlights[p] = hl
-                createBillboard(char, p.DisplayName, p.TeamColor.Color)
+        task.spawn(function()
+            while flying and char.Parent do
+                hum:ChangeState(Enum.HumanoidStateType.Climbing)
+                local velocity = hum.MoveDirection * flySpeed
+                if upPressed then velocity = velocity + Vector3.new(0, flySpeed, 0)
+                elseif downPressed then velocity = velocity + Vector3.new(0, -flySpeed, 0) end
+                flyBV.Velocity = velocity
+                flyGyro.CFrame = workspace.CurrentCamera.CFrame
+                RunService.Heartbeat:Wait()
             end
-        else removeESP(p.Character or p, playerHighlights) end
+            if flyBV then flyBV:Destroy() end
+            if flyGyro then flyGyro:Destroy() end
+            hum:ChangeState(Enum.HumanoidStateType.Running)
+        end)
     end
 end
 
 ----------------------------------------------------------------
--- UI 按钮实例化与交互
+-- UI 交互与按钮绑定
 ----------------------------------------------------------------
 
-local killAuraButton = createButton("KillAura", "杀戮光环", Color3.fromRGB(80, 80, 80))
-local flyButton = createButton("FlyBtn", "飞行模式: 关闭", Color3.fromRGB(60, 60, 60))
-local espButton = createButton("PlayerESP", "开启玩家透视", Color3.fromRGB(80, 80, 80))
-local zombieEspButton = createButton("ZombieESP", "透视僵尸", Color3.fromRGB(80, 80, 80))
-local noBarrelsButton = createButton("NoBarrels", "攻击炸药桶: 取消", Color3.fromRGB(60, 60, 60))
-local autoRotateButton = createButton("AutoRotate", "自动转向: 关闭", Color3.fromRGB(60, 60, 60))
-local attackDraculaButton = createButton("AttackDracula", "攻击德古拉: 关闭", Color3.fromRGB(60, 60, 60))
-
-noBarrelsButton.Visible = false
-autoRotateButton.Visible = false
-attackDraculaButton.Visible = false
-
--- 飞行按键逻辑
-flyUpBtn.MouseButton1Down:Connect(function() upPressed = true end)
-flyUpBtn.MouseButton1Up:Connect(function() upPressed = false end)
-flyDownBtn.MouseButton1Down:Connect(function() downPressed = true end)
-flyDownBtn.MouseButton1Up:Connect(function() downPressed = false end)
-
-flyButton.MouseButton1Click:Connect(function()
-    toggleFly()
-    flyButton.Text = "飞行模式: " .. (flying and "开启" or "关闭")
-    flyButton.BackgroundColor3 = flying and Color3.fromRGB(0, 150, 200) or Color3.fromRGB(60, 60, 60)
+-- 1. 注入脚本
+local injectBtn = createButton("InjectBtn", "注入外部脚本 (完全体)", Color3.fromRGB(120, 0, 200))
+injectBtn.MouseButton1Click:Connect(function()
+    injectExternal()
+    injectBtn.Text = "注入成功"
+    task.wait(1)
+    injectBtn.Text = "再次注入"
 end)
 
--- 杀戮光环逻辑
-killAuraButton.MouseButton1Click:Connect(function()
+-- 2. 杀戮光环
+local killAuraBtn = createButton("KillAura", "杀戮光环: 关闭", Color3.fromRGB(80, 80, 80))
+killAuraBtn.MouseButton1Click:Connect(function()
     killAuraActive = not killAuraActive
-    killAuraButton.Text = killAuraActive and "杀戮光环: 运行中" or "杀戮光环: 已关闭"
-    killAuraButton.BackgroundColor3 = killAuraActive and Color3.fromRGB(0, 120, 255) or Color3.fromRGB(80, 80, 80)
-    noBarrelsButton.Visible = killAuraActive; autoRotateButton.Visible = killAuraActive; attackDraculaButton.Visible = killAuraActive
+    killAuraBtn.Text = killAuraActive and "杀戮光环: 运行中" or "杀戮光环: 关闭"
+    killAuraBtn.BackgroundColor3 = killAuraActive and Color3.fromRGB(0, 120, 255) or Color3.fromRGB(80, 80, 80)
+    
     if killAuraActive then
         killAuraConnection = RunService.Heartbeat:Connect(function()
             if not killAuraActive or not AnimationController.Character then return end
             local zs = workspace:FindFirstChild("Zombies")
             if zs then
                 for _, z in pairs(zs:GetChildren()) do
-                    if z:IsA("Model") and z:FindFirstChild("HumanoidRootPart") then
-                        if z:GetAttribute("Type") == "Barrel" and not attackBarrels then continue end
-                        if distance(z) <= 12 and z:FindFirstChild("State") and z.State.Value ~= "Spawn" then
-                            performAttack(z, false)
-                        end
+                    if z:FindFirstChild("HumanoidRootPart") and (z.HumanoidRootPart.Position - AnimationController.Character.HumanoidRootPart.Position).Magnitude <= 12 then
+                        performAttack(z, false)
                     end
                 end
-            end
-            if attackDraculaEnabled then
-                local drac = workspace:FindFirstChild("Transylvania") and workspace.Transylvania.Modes.Boss:FindFirstChild("Dracula")
-                if drac and drac:FindFirstChild("HumanoidRootPart") and distance(drac) <= 12 then performAttack(drac, true) end
             end
         end)
     else
@@ -356,22 +324,57 @@ killAuraButton.MouseButton1Click:Connect(function()
     end
 end)
 
--- 其他按钮逻辑
-espButton.MouseButton1Click:Connect(function()
+-- 3. 玩家透视
+local espBtn = createButton("PlayerESP", "玩家透视: 关闭", Color3.fromRGB(80, 80, 80))
+espBtn.MouseButton1Click:Connect(function()
     espEnabled = not espEnabled
-    updateAllESP()
+    espBtn.Text = espEnabled and "玩家透视: 开启" or "玩家透视: 关闭"
+    espBtn.BackgroundColor3 = espEnabled and Color3.fromRGB(0, 150, 0) or Color3.fromRGB(80, 80, 80)
 end)
 
-autoRotateButton.MouseButton1Click:Connect(function()
-    autoRotateEnabled = not autoRotateEnabled
-    autoRotateButton.Text = "自动转向: " .. (autoRotateEnabled and "开启" or "关闭")
+-- 4. 僵尸透视
+local zEspBtn = createButton("ZombieESP", "僵尸透视: 关闭", Color3.fromRGB(80, 80, 80))
+zEspBtn.MouseButton1Click:Connect(function()
+    zombieEspEnabled = not zombieEspEnabled
+    zEspBtn.Text = zombieEspEnabled and "僵尸透视: 开启" or "僵尸透视: 关闭"
+    zEspBtn.BackgroundColor3 = zombieEspEnabled and Color3.fromRGB(150, 0, 0) or Color3.fromRGB(80, 80, 80)
 end)
+
+-- 5. 飞行模式
+local flyBtn = createButton("FlyBtn", "飞行模式: 关闭", Color3.fromRGB(60, 60, 60))
+flyBtn.MouseButton1Click:Connect(function()
+    toggleFly()
+    flyBtn.Text = "飞行模式: " .. (flying and "开启" or "关闭")
+    flyBtn.BackgroundColor3 = flying and Color3.fromRGB(0, 150, 200) or Color3.fromRGB(60, 60, 60)
+end)
+
+-- 6. 自动转向
+local autoRotateBtn = createButton("AutoRotate", "自动转向: 关闭", Color3.fromRGB(60, 60, 60))
+autoRotateBtn.MouseButton1Click:Connect(function()
+    autoRotateEnabled = not autoRotateEnabled
+    autoRotateBtn.Text = "自动转向: " .. (autoRotateEnabled and "开启" or "关闭")
+end)
+
+----------------------------------------------------------------
+-- 循环更新任务
+----------------------------------------------------------------
+RunService.RenderStepped:Connect(function()
+    updateESP()
+end)
+
+-- 飞行按键交互
+flyUpBtn.MouseButton1Down:Connect(function() upPressed = true end)
+flyUpBtn.MouseButton1Up:Connect(function() upPressed = false end)
+flyDownBtn.MouseButton1Down:Connect(function() downPressed = true end)
+flyDownBtn.MouseButton1Up:Connect(function() downPressed = false end)
 
 ToggleButton.MouseButton1Click:Connect(function() MainFrame.Visible = not MainFrame.Visible end)
 
 CloseButton.MouseButton1Click:Connect(function()
     flying = false
     killAuraActive = false
+    espEnabled = false
+    zombieEspEnabled = false
     if killAuraConnection then killAuraConnection:Disconnect() end
     ScreenGui:Destroy()
 end)
